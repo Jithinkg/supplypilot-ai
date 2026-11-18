@@ -1,0 +1,13 @@
+# PostgreSQL 17 Alpine base verified against a physical copy in Day 3/5.
+# Preserve this digest and pgvector version unless compatibility checks are repeated.
+ARG POSTGRES_BASE=postgres@sha256:a77aa70e641402a21411b92b721c58d10f23b50ae5fdd2333efd22d166e1e5f7
+FROM ${POSTGRES_BASE}
+ARG PGVECTOR_VERSION=0.8.7
+RUN apk add --no-cache --virtual .pgvector-build build-base curl ca-certificates \
+    && curl --fail --location --retry 2 "https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz" -o /tmp/pgvector.tar.gz \
+    && tar -xzf /tmp/pgvector.tar.gz -C /tmp \
+    && cd "/tmp/pgvector-${PGVECTOR_VERSION}" \
+    && make OPTFLAGS="" with_llvm=no \
+    && make install with_llvm=no \
+    && apk del .pgvector-build \
+    && rm -rf /tmp/pgvector*

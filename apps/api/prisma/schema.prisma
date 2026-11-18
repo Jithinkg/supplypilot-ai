@@ -1,0 +1,279 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  STAFF
+  MANAGER
+}
+
+enum ProposalStatus {
+  DRAFT
+  APPROVED
+  REJECTED
+}
+
+enum ActorKind {
+  HUMAN
+  AI
+}
+
+enum RunMode {
+  READ_ONLY
+  CREATE_DRAFT
+}
+
+enum RunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id           String @id @default(uuid()) @db.Uuid
+  email        String @unique
+  passwordHash String
+  role         Role
+  active       Boolean @default(true)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  sessions     Session[]
+  runs         AgentRun[]
+  proposals    PurchaseProposal[] @relation("Creator")
+  decisions    PurchaseProposal[] @relation("DecisionMaker")
+  auditEvents  AuditEvent[]
+  idempotencyRecords IdempotencyRecord[]
+  documents KnowledgeDocument[]
+}
+
+model Session {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  tokenHash  String @unique
+  csrfSecret String
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([expiresAt])
+}
+
+model Product {
+  id            String @id @default(uuid()) @db.Uuid
+  sku           String @unique
+  name          String
+  unit          String
+  stockQuantity Int @default(0)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  sales         DailySale[]
+  quotes        SupplierQuote[]
+  proposalLines ProposalLine[]
+}
+
+model DailySale {
+  id        String @id @default(uuid()) @db.Uuid
+  productId String @db.Uuid
+  date      DateTime @db.Date
+  quantity  Int
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  @@unique([productId, date])
+}
+
+model Supplier {
+  id        String @id @default(uuid()) @db.Uuid
+  code      String @unique
+  name      String
+  active    Boolean @default(true)
+  quotes    SupplierQuote[]
+  proposals PurchaseProposal[]
+  documents KnowledgeDocument[]
+}
+
+model SupplierQuote {
+  id             String @id @default(uuid()) @db.Uuid
+  supplierId     String @db.Uuid
+  productId      String @db.Uuid
+  unitPricePaise Int
+  leadTimeDays   Int
+  supplier       Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  product        Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  proposalLines  ProposalLine[]
+  @@unique([supplierId, productId])
+}
+
+model Budget {
+  id             String @id @default(uuid()) @db.Uuid
+  key            String @unique @default("SHARED")
+  currency       String @default("INR")
+  allocatedPaise Int
+  reservedPaise  Int @default(0)
+  proposals      PurchaseProposal[]
+  reservations   BudgetReservation[]
+}
+
+model PurchaseProposal {
+  id               String @id @default(uuid()) @db.Uuid
+  supplierId       String @db.Uuid
+  budgetId         String @db.Uuid
+  creatorId        String @db.Uuid
+  source           ActorKind
+  status           ProposalStatus @default(DRAFT)
+  totalPaise       Int
+  reason           String
+  agentRunId       String? @db.Uuid
+  decisionMakerId  String? @db.Uuid
+  decidedAt        DateTime? @db.Timestamptz(3)
+  rejectionReason  String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  supplier         Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  budget           Budget @relation(fields: [budgetId], references: [id], onDelete: Restrict)
+  creator          User @relation("Creator", fields: [creatorId], references: [id], onDelete: Restrict)
+  decisionMaker    User? @relation("DecisionMaker", fields: [decisionMakerId], references: [id], onDelete: Restrict)
+  agentRun         AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: Restrict)
+  lines            ProposalLine[]
+  reservation      BudgetReservation?
+  @@unique([agentRunId, supplierId])
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+
+model ProposalLine {
+  id             String @id @default(uuid()) @db.Uuid
+  proposalId     String @db.Uuid
+  productId      String @db.Uuid
+  quoteId        String @db.Uuid
+  quantity       Int
+  unitPricePaise Int
+  leadTimeDays   Int
+  lineTotalPaise Int
+  proposal       PurchaseProposal @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  product        Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quote          SupplierQuote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  @@unique([proposalId, productId])
+}
+
+model BudgetReservation {
+  id          String @id @default(uuid()) @db.Uuid
+  proposalId  String @unique @db.Uuid
+  budgetId    String @db.Uuid
+  amountPaise Int
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  proposal    PurchaseProposal @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  budget      Budget @relation(fields: [budgetId], references: [id], onDelete: Restrict)
+}
+
+model AgentRun {
+  id          String @id @default(uuid()) @db.Uuid
+  userId      String @db.Uuid
+  requestKey  String
+  requestHash String
+  intent      String?
+  capturedRole Role?
+  deadline    DateTime? @db.Timestamptz(3)
+  prompt      String
+  mode        RunMode
+  status      RunStatus @default(RUNNING)
+  result      Json?
+  error       Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  completedAt DateTime? @db.Timestamptz(3)
+  user        User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  proposals   PurchaseProposal[]
+  @@unique([userId, requestKey])
+}
+
+model IdempotencyRecord {
+  id          String @id @default(uuid()) @db.Uuid
+  userId      String @db.Uuid
+  operation   String
+  key         String
+  requestHash String
+  response    Json
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  user        User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  @@unique([userId, operation, key])
+}
+
+model AuditEvent {
+  id          String @id @default(uuid()) @db.Uuid
+  actorUserId String? @db.Uuid
+  actorKind   ActorKind
+  action      String
+  entityType  String
+  entityId    String?
+  requestId   String
+  runId       String? @db.Uuid
+  metadata    Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  actor       User? @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  @@index([entityType, entityId, createdAt])
+}
+
+
+enum DocumentType {
+  PROCUREMENT_POLICY
+  SUPPLIER_CONTRACT
+}
+enum IngestionStatus {
+  QUEUED
+  PROCESSING
+  READY
+  FAILED
+  ARCHIVED
+}
+model KnowledgeDocument {
+  id String @id @default(uuid()) @db.Uuid
+  type DocumentType
+  supplierId String? @db.Uuid
+  uploaderId String @db.Uuid
+  title String
+  originalFilename String
+  checksum String
+  dedupKey String @unique
+  pdf Bytes @db.ByteA
+  pageCount Int?
+  status IngestionStatus @default(QUEUED)
+  errorCode String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  uploader User @relation(fields: [uploaderId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  chunks DocumentChunk[]
+  @@index([status, createdAt])
+  @@index([type, supplierId])
+}
+model DocumentChunk {
+  id String @id @default(uuid()) @db.Uuid
+  documentId String @db.Uuid
+  ordinal Int
+  pageNumber Int
+  text String
+  startOffset Int
+  endOffset Int
+  document KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  embeddings ChunkEmbedding[]
+  @@unique([documentId, ordinal])
+}
+model EmbeddingProfile {
+  id String @id @db.VarChar(64)
+  model String
+  revision String
+  dimensions Int
+  pooling String
+  normalized Boolean
+  chunkTokens Int
+  overlapTokens Int
+  dtype String
+  embeddings ChunkEmbedding[]
+}
+model ChunkEmbedding {
+  chunkId String @db.Uuid
+  profileId String @db.VarChar(64)
+  dimensions Int
+  embedding Unsupported("vector")
+  chunk DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profile EmbeddingProfile @relation(fields: [profileId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  @@id([chunkId, profileId])
+}

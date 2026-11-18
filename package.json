@@ -1,0 +1,43 @@
+{
+  "name": "supplypilot-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "npm run build -w @supplypilot/contracts && concurrently -k -n contracts,api,web \"npm run dev -w @supplypilot/contracts\" \"npm run dev -w @supplypilot/api\" \"npm run dev -w @supplypilot/web\"",
+    "build": "npm run build -w @supplypilot/contracts && npm run build -w @supplypilot/api && npm run build -w @supplypilot/web",
+    "typecheck": "npm run build -w @supplypilot/contracts && npm run typecheck --workspaces && tsc -p tests/e2e/tsconfig.json",
+    "test": "npm run build -w @supplypilot/contracts && vitest run && vitest run --config apps/web/vitest.config.ts",
+    "test:db": "npm run build -w @supplypilot/contracts && npm run test:db -w @supplypilot/api",
+    "db:generate": "npm run db:generate -w @supplypilot/api",
+    "db:migrate": "npm run db:migrate -w @supplypilot/api",
+    "db:seed": "npm run db:seed -w @supplypilot/api",
+    "db:check": "npm run db:check -w @supplypilot/api",
+    "check:embeddings": "npm run check:embeddings -w @supplypilot/api --",
+    "check:pgvector": "npm run check:pgvector -w @supplypilot/api --",
+    "smoke:openrouter": "npm run smoke:openrouter -w @supplypilot/api",
+    "test:web": "npm run build -w @supplypilot/contracts && vitest run --config apps/web/vitest.config.ts",
+    "test:e2e": "npm run build -w @supplypilot/contracts && npm run test:e2e -w @supplypilot/api",
+    "knowledge:ingest": "npm run knowledge:ingest -w @supplypilot/api --",
+    "test:rag": "npm run build -w @supplypilot/contracts && npm run test:rag -w @supplypilot/api",
+    "smoke:agents": "npm run build -w @supplypilot/contracts && npm run smoke:agents -w @supplypilot/api",
+    "smoke:intents": "npm run build -w @supplypilot/contracts && npm run smoke:intents -w @supplypilot/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0",
+    "@playwright/test": "^1.56.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "jsdom": "^27.0.1"
+  }
+}

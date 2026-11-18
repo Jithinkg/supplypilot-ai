@@ -1,0 +1,43 @@
+import { expect, it, vi } from 'vitest';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { KnowledgePage } from './knowledge';
+import { api } from '@/lib/api';
+import { account, id } from '@/test/fixtures';
+import { renderWorkspace } from '@/test/render';
+const doc = { id, title: 'Example policy', originalFilename: 'policy.pdf', type: 'PROCUREMENT_POLICY' as const, supplierId: null, pageCount: 1, status: 'READY' as const, errorCode: null, createdAt: '2026-11-18T00:00:00.000Z', updatedAt: '2026-11-18T00:00:00.000Z' };
+const manager = { ...account, user: { ...account.user, role: 'MANAGER' as const } };
+it('lets staff search policies and read documents without exposing upload or contract controls', async () => {
+  vi.spyOn(api, 'documents').mockResolvedValue({ items: [doc], total: 1, page: 1, pageSize: 20 });
+  const search = vi.spyOn(api, 'searchKnowledge').mockResolvedValue({ outcome: 'INSUFFICIENT_EVIDENCE', advisory: true, findings: 'No matching evidence.', citations: [], scope: { type: 'PROCUREMENT_POLICY', supplierId: null } });
+  renderWorkspace(<KnowledgePage />);
+  await screen.findByText('Example policy');
+  expect(screen.queryByRole('option', { name: 'Supplier contracts' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Upload PDF' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+  await userEvent.type(screen.getByLabelText('Search knowledge'), 'Unknown question');
+  await userEvent.click(screen.getByRole('button', { name: 'Search documents' }));
+  await screen.findByText('Insufficient evidence');
+  expect(search).toHaveBeenCalledWith({ query: 'Unknown question', type: 'PROCUREMENT_POLICY' }, account.csrfToken);
+});
+it('requires supplier selection and carries that scope into uploads and document listing', async () => {
+  const documents = vi.spyOn(api, 'documents').mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+  vi.spyOn(api, 'knowledgeSuppliers').mockResolvedValue([{ id, code: 'SUP-001', name: 'Harbor' }]);
+  const upload = vi.spyOn(api, 'uploadDocument').mockResolvedValue({ ...doc, type: 'SUPPLIER_CONTRACT', supplierId: id, status: 'QUEUED' });
+  renderWorkspace(<KnowledgePage />, manager);
+  await userEvent.selectOptions(screen.getByLabelText('Document type'), 'SUPPLIER_CONTRACT');
+  await screen.findByText('Select a supplier to view or search its contracts.');
+  expect(screen.queryByRole('button', { name: 'Upload PDF' })).not.toBeInTheDocument();
+  await userEvent.selectOptions(screen.getByLabelText('Supplier', { exact: true }), id);
+  await userEvent.type(screen.getByLabelText('Document title'), 'Supplier contract');
+  const file = new File(['%PDF-fixture'], 'contract.pdf', { type: 'application/pdf' });
+  await userEvent.upload(screen.getByLabelText('PDF file'), file);
+  expect(screen.getByLabelText('Document title')).toHaveValue('Supplier contract');
+  expect(screen.getByLabelText('PDF file')).toHaveProperty('files.length', 1);
+  const form = screen.getByRole('button', { name: 'Upload PDF' }).closest('form');
+  if (!form) throw new Error('Upload form missing');
+  // jsdom does not implement native file-input constraint validation reliably.
+  fireEvent.submit(form);
+  await waitFor(() => expect(upload).toHaveBeenCalledWith({ title: 'Supplier contract', type: 'SUPPLIER_CONTRACT', supplierId: id }, file, account.csrfToken));
+  expect(documents).toHaveBeenCalledWith({ type: 'SUPPLIER_CONTRACT', supplierId: id, page: 1 }, expect.any(AbortSignal));
+});

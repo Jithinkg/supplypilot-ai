@@ -1,0 +1,23 @@
+node_modules/
+dist/
+coverage/
+.cache/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# Local credentials and agent runtime state are not project source.
+.aws/
+.codex/
+.agents/
+
+# Private database backups and key material.
+*.dump
+*.backup
+*.sql.gz
+*.key
+*.pem
+*.p12
+*.pfx

@@ -1,0 +1,35 @@
+import { useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle } from '@/components/ui/card';
+import { ErrorNotice, Loading, Notice, StatusBadge, tableClass } from '@/components/common';
+import { useAccount, useProposal } from '@/features/queries';
+import { ReviewActions } from '@/features/proposals/review-actions';
+import { api } from '@/lib/api';
+import { dateTime, money } from '@/lib/format';
+
+function CurrentQuotes({ productId, quantity, snapshotQuoteId }: { productId: string; quantity: number; snapshotQuoteId: string }) {
+  const { user } = useAccount();
+  const [open, setOpen] = useState(false);
+  const query = useQuery({ queryKey: ['business', user.id, 'quotes', productId, quantity], queryFn: ({ signal }) => api.quotes(productId, quantity, signal), enabled: open });
+  return <div><Button variant="ghost" size="sm" onClick={() => setOpen(!open)}>{open ? 'Hide current quotes' : 'Compare current quotes'}</Button>{open && <div className="mt-3 rounded-lg border bg-muted/20 p-3"><p className="mb-3 text-xs text-muted-foreground">Current alternatives for this quantity. The proposal retains its original price and delivery snapshots.</p>{query.isPending && <Loading label="Comparing suppliers…" />}{query.error && <ErrorNotice error={query.error} retry={() => void query.refetch()} />}{query.data?.quotes.map((quote) => <div key={quote.quoteId} className="flex flex-wrap justify-between gap-2 border-t py-3 text-xs"><span>{quote.supplierName}{quote.quoteId === snapshotQuoteId ? ' · Proposal supplier' : ''}</span><span>{money(quote.unitPricePaise)} / unit · {quote.leadTimeDays} days · {quote.lineTotalPaise === null ? '—' : money(quote.lineTotalPaise)}</span></div>)}</div>}</div>;
+}
+export function ProposalDetailPage() {
+  const { id = '' } = useParams();
+  const query = useProposal(id);
+  const proposal = query.data;
+  return <main className="mx-auto max-w-[1400px] space-y-6 px-5 py-8 md:px-8"><Link to="/proposals" className="inline-flex items-center gap-2 text-sm text-primary hover:underline"><ArrowLeft className="size-4" />All proposals</Link>
+    {query.isPending && <Loading label="Loading proposal…" />}{query.error && <ErrorNotice error={query.error} retry={() => void query.refetch()} />}
+    {proposal && <><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Purchase proposal</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">{proposal.supplier.name}</h1><p className="mt-2 font-mono text-xs text-muted-foreground">{proposal.id}</p></div><div className="flex items-center gap-3"><StatusBadge status={proposal.status} /><Button aria-label="Refresh proposal" variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw className="size-4" /></Button></div></div>
+      <ReviewActions proposal={proposal} />
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]"><div className="min-w-0 space-y-6"><Card><CardHeader><div><CardTitle>Products in this proposal</CardTitle><p className="mt-1 text-xs text-muted-foreground">Fixed quantities, prices and delivery terms saved at creation.</p></div></CardHeader><div className="overflow-x-auto"><table className={tableClass}><thead className="bg-muted/40"><tr><th>Product</th><th>Quantity</th><th>Unit price</th><th>Lead time</th><th>Line total</th></tr></thead><tbody>{proposal.lines.map((line) => <tr key={line.id}><td><p className="font-medium">{line.product.name}</p><p className="mt-1 text-xs text-muted-foreground">{line.product.sku}</p>{line.lateDeliveryRisk && <p className="mt-1 text-xs text-amber-800">May arrive after stockout</p>}{line.hasPendingReplenishment && <p className="mt-1 text-xs text-muted-foreground">Replenishment recorded</p>}</td><td>{line.quantity} {line.product.unit}</td><td className="whitespace-nowrap">{money(line.unitPricePaise)}</td><td>{line.leadTimeDays} days</td><td className="whitespace-nowrap font-medium">{money(line.lineTotalPaise)}</td></tr>)}</tbody></table></div><div className="flex justify-between border-t bg-muted/30 px-5 py-4 text-sm font-semibold"><span>Proposal total</span><span>{money(proposal.totalPaise)}</span></div></Card>
+      <Card><CardHeader><CardTitle>Supplier comparison</CardTitle></CardHeader><div className="divide-y px-5">{proposal.lines.map((line) => <div key={line.id} className="py-4"><p className="mb-2 text-sm font-medium">{line.product.name} <span className="text-xs font-normal text-muted-foreground">{line.product.sku}</span></p><CurrentQuotes productId={line.product.id} quantity={line.quantity} snapshotQuoteId={line.quoteId} /></div>)}</div></Card>
+      <Card><CardHeader><CardTitle>Audit timeline</CardTitle></CardHeader><ol className="space-y-5 p-5">{proposal.audit.map((event) => <li key={event.id} className="border-l-2 border-primary/20 pl-4"><p className="text-sm font-medium">{event.action.replaceAll('_', ' ')}</p><p className="mt-1 text-xs text-muted-foreground">{dateTime(event.createdAt)} · {event.actorKind.toLowerCase()}</p></li>)}</ol></Card></div>
+      <div className="space-y-5"><Card><CardHeader><CardTitle>Budget</CardTitle></CardHeader><dl className="space-y-4 p-5 text-sm"><div><dt className="text-xs text-muted-foreground">Proposal total</dt><dd className="mt-1 text-xl font-semibold">{money(proposal.totalPaise)}</dd></div><div><dt className="text-xs text-muted-foreground">Currently available</dt><dd className="mt-1 font-semibold text-primary">{money(proposal.budget.availablePaise)}</dd></div><div><dt className="text-xs text-muted-foreground">Reserved across approved proposals</dt><dd className="mt-1">{money(proposal.budget.reservedPaise)}</dd></div></dl></Card>
+      <Card><CardHeader><CardTitle>Request details</CardTitle></CardHeader><dl className="space-y-4 break-words p-5 text-sm"><div><dt className="text-xs text-muted-foreground">Reason</dt><dd className="mt-1 whitespace-pre-wrap">{proposal.reason}</dd></div><div><dt className="text-xs text-muted-foreground">Created by</dt><dd className="mt-1">{proposal.creator.email}</dd></div><div><dt className="text-xs text-muted-foreground">Created</dt><dd className="mt-1">{dateTime(proposal.createdAt)}</dd></div>{proposal.decisionMaker && <><div><dt className="text-xs text-muted-foreground">Decision by</dt><dd className="mt-1">{proposal.decisionMaker.email}</dd></div><div><dt className="text-xs text-muted-foreground">Decision time</dt><dd className="mt-1">{dateTime(proposal.decidedAt)}</dd></div></>}{proposal.rejectionReason && <div><dt className="text-xs text-muted-foreground">Rejection reason</dt><dd className="mt-1 whitespace-pre-wrap">{proposal.rejectionReason}</dd></div>}</dl></Card>
+      <Notice>Approval reserves procurement funds. It does not place an order or add stock.</Notice></div></div>
+    </>}
+  </main>;
+}
